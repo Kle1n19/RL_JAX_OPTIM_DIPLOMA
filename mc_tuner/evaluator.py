@@ -61,6 +61,8 @@ class Evaluator:
     def _run_once(self, params: dict):
         flags = params.get("xla_flags", "")
         donate = params.get("jit_donate_argnums", ())
+        if isinstance(donate, str):
+            donate = tuple(int(x) for x in donate.strip("()").split(",") if x.strip())
         os.environ["XLA_FLAGS"] = flags
         run_fn = _get_run_simulation(donate)
         keys = jnp.array(self._keys)  if 0 in donate else self._keys
@@ -91,7 +93,7 @@ class Evaluator:
             jax.block_until_ready(carries)
             times.append(time.perf_counter() - t0)
 
-        return max(times), metric, outputs
+        return min(times), metric, outputs
 
 
     def warm_up(self) -> None:
