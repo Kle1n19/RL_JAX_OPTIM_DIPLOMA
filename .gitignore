@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# JAX / XLA artefacts
+xla_dump/
+traces/
+*.ptxas
+*.nvvm
+
+# Experiment outputs (regenerate with run.py)
+experiments/*/results/results.json
+experiments/*/figures/*.png
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Misc build artefacts
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Scratch / personal files
+sandbox/
+text/
+tpu/
+codebase_compilation.txt
+combined_code.txt
+.codex
+DOCUMENTATION.md
