@@ -1,6 +1,7 @@
-import gzip, json, glob, argparse
+import gzip, json, glob, argparse, os
 import numpy as np
 from collections import defaultdict
+from contextlib import redirect_stdout
 
 GPU_CFG = dict(
     baseline_glob = "traces/baseline/plugins/profile/**/*.trace.json.gz",
@@ -26,7 +27,7 @@ GPU_CFG = dict(
 TPU_CFG = dict(
     baseline_glob  = "tpu/traces/baseline/plugins/profile/**/*.trace.json.gz",
     tuned_glob     = "tpu/traces/tuned/plugins/profile/**/*.trace.json.gz",
-    xla_module_key = None,          # resolved dynamically: jit_run_simulation(hash)
+    xla_module_key = None,
     pjit_key       = "PjitFunction(run_simulation)",
     dispatch_stack = [
         "PjitFunction(run_simulation)",
@@ -65,11 +66,14 @@ def load(path):
 
 
 def resolve_xla_key(by_name, cfg):
-    """For TPU, find the jit_run_simulation(hash) event name dynamically."""
-    if cfg["xla_module_key"] is not None:
+    if cfg["xla_module_key"] is not None and cfg["xla_module_key"] in by_name:
         return cfg["xla_module_key"]
+    # fallback: dynamic hash variant (TPU) or dispatch-level proxy (GPU)
     for name in by_name:
         if name.startswith("jit_run_simulation("):
+            return name
+    for name in by_name:
+        if "GpuExecutable::ExecuteThunks" in name:
             return name
     return None
 
@@ -164,6 +168,7 @@ def analyze(events, label, cfg):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--tpu", action="store_true", help="Analyse TPU traces instead of GPU")
+    parser.add_argument("--label", default="", help="Device label appended to output filename (e.g. A100, H100, V100)")
     args = parser.parse_args()
 
     cfg = TPU_CFG if args.tpu else GPU_CFG
@@ -179,29 +184,38 @@ if __name__ == "__main__":
     events_base  = load(baseline_files[-1])
     events_tuned = load(tuned_files[-1])
 
-    s_base  = analyze(events_base,  "BASELINE  (unoptimized)", cfg)
-    s_tuned = analyze(events_tuned, "TUNED     (optimized)",   cfg)
+    device_tag = "tpu" if args.tpu else "gpu"
+    if args.label:
+        device_tag = f"{device_tag}_{args.label}"
+    os.makedirs("results", exist_ok=True)
+    out_path = f"results/analysis_{device_tag}.txt"
 
-    section("THESIS SUMMARY")
-    speedup = s_base["xla_avg_us"] / s_tuned["xla_avg_us"] if s_tuned["xla_avg_us"] else 0
+    with open(out_path, "w") as f, redirect_stdout(f):
+        s_base  = analyze(events_base,  "BASELINE  (unoptimized)", cfg)
+        s_tuned = analyze(events_tuned, "TUNED     (optimized)",   cfg)
 
-    rows = [
-        (f"{cfg['xla_label']} avg time",  f"{s_base['xla_avg_us']/1e3:.3f} ms",
-                                           f"{s_tuned['xla_avg_us']/1e3:.3f} ms",
-                                           f"{speedup:.2f}x faster"),
-        ("Run-to-run std dev",             f"{s_base['xla_std_us']/1e3:.4f} ms",
-                                           f"{s_tuned['xla_std_us']/1e3:.4f} ms", ""),
-        ("Fused kernel invocations",       str(s_base["n_fused"]),
-                                           str(s_tuned["n_fused"]), ""),
-        ("While-loop body calls",          str(s_base["n_while"]),
-                                           str(s_tuned["n_while"]), ""),
-        ("Memory transfer ops",            str(s_base["n_memcpy"]),
-                                           str(s_tuned["n_memcpy"]), ""),
-        ("Dispatch overhead",              f"{s_base['dispatch_overhead_pct']:.1f}%",
-                                           f"{s_tuned['dispatch_overhead_pct']:.1f}%", ""),
-    ]
+        section("THESIS SUMMARY")
+        speedup = s_base["xla_avg_us"] / s_tuned["xla_avg_us"] if s_tuned["xla_avg_us"] else 0
 
-    print(f"\n  {'Metric':<32} {'Baseline':>14} {'Tuned':>14} {'Note':>16}")
-    print(f"  {'─'*76}")
-    for row in rows:
-        print(f"  {row[0]:<32} {row[1]:>14} {row[2]:>14} {row[3]:>16}")
+        rows = [
+            (f"{cfg['xla_label']} avg time",  f"{s_base['xla_avg_us']/1e3:.3f} ms",
+                                               f"{s_tuned['xla_avg_us']/1e3:.3f} ms",
+                                               f"{speedup:.2f}x faster"),
+            ("Run-to-run std dev",             f"{s_base['xla_std_us']/1e3:.4f} ms",
+                                               f"{s_tuned['xla_std_us']/1e3:.4f} ms", ""),
+            ("Fused kernel invocations",       str(s_base["n_fused"]),
+                                               str(s_tuned["n_fused"]), ""),
+            ("While-loop body calls",          str(s_base["n_while"]),
+                                               str(s_tuned["n_while"]), ""),
+            ("Memory transfer ops",            str(s_base["n_memcpy"]),
+                                               str(s_tuned["n_memcpy"]), ""),
+            ("Dispatch overhead",              f"{s_base['dispatch_overhead_pct']:.1f}%",
+                                               f"{s_tuned['dispatch_overhead_pct']:.1f}%", ""),
+        ]
+
+        print(f"\n  {'Metric':<32} {'Baseline':>14} {'Tuned':>14} {'Note':>16}")
+        print(f"  {'─'*76}")
+        for row in rows:
+            print(f"  {row[0]:<32} {row[1]:>14} {row[2]:>14} {row[3]:>16}")
+
+    print(f"Results written to {out_path}")
