@@ -305,8 +305,8 @@ def main():
                         help="Smoke-test: small batch, few repeats, skip slow agents")
     parser.add_argument("--plot-only", action="store_true",
                         help="Skip evaluation, re-plot last saved results")
-    parser.add_argument("--no-grid", action="store_true",
-                        help="Skip exhaustive grid search (slow on large spaces)")
+    parser.add_argument("--grid", action="store_true",
+                        help="Include exhaustive grid search (slow — excluded by default)")
     parser.add_argument("--budget", type=int, default=BUDGET,
                         help=f"Evaluation budget for RL/Random (default {BUDGET})")
     parser.add_argument("--n-steps", type=int, default=None,
@@ -368,7 +368,7 @@ def main():
             n_cfg = len(mode_configs)
             scale = n_cfg / base_size
             mode_budget = max(budget, int(budget * scale))
-            skip_grid = args.no_grid or (GRID_MAX_CONFIGS is not None and n_cfg > GRID_MAX_CONFIGS)
+            skip_grid = not args.grid or (GRID_MAX_CONFIGS is not None and n_cfg > GRID_MAX_CONFIGS)
             mode_methods = methods + ([] if skip_grid else ["Grid"])
 
             print(f"  MODE: {mode_label}  ({n_cfg:,} configs, "
@@ -416,13 +416,12 @@ def main():
     space_tag = "full JAX_INJECT_SPACE"
 
     n_configs = len(configs)
-    skip_grid = args.no_grid or (GRID_MAX_CONFIGS is not None and n_configs > GRID_MAX_CONFIGS)
+    skip_grid = not args.grid or (GRID_MAX_CONFIGS is not None and n_configs > GRID_MAX_CONFIGS)
 
-  
     print(f"  Search space: {n_configs:,} configs  — {space_tag}")
     print(f"  Budget: {budget} evaluations per RL/Random method")
     print(f"                 ({budget/n_configs*100:.2f}% of the full space sampled)")
-    print(f"  Grid search: {'SKIPPED (--no-grid)' if skip_grid else f'{n_configs} evals (exhaustive)'}")
+    print(f"  Grid search: {'SKIPPED (pass --grid to enable)' if skip_grid else f'{n_configs} evals (exhaustive)'}")
     print(f"  Domain: American Option Pricing — {n_steps} steps × {batch_size} chains")
     print(f"  Device: {jax.default_backend().upper()}  ({jax.device_count()} device(s))")
 
